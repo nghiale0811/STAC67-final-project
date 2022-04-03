@@ -1,0 +1,205 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Importing libraries.
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggcorrplot)
+library(broom)
+library(MASS)
+library(car)
+library(lmtest)
+library(olsrr)
+```
+
+Reading in the data.
+
+```{r}
+(bike <- read_excel("./SeoulBikeData.xlsx"))
+```
+## DATA ANALYSIS
+
+Extracting and cleaning data
+```{r}
+# Response variable
+rbc <- bike$`Rented Bike Count`
+
+# Explanatory variables
+hour <- bike$Hour
+temp <- bike$`Temperature(°C)`
+humid <- bike$`Humidity(%)`
+windspd <- bike$`Wind speed (m/s)`
+vis <- bike$`Visibility (10m)`
+dptemp <- bike$`Dew point temperature(°C)`
+solrad <- bike$`Solar Radiation (MJ/m2)`
+rain <- bike$`Rainfall(mm)`
+snow <- bike$`Snowfall (cm)`
+
+# Categorical varaibles
+season <- as.numeric(str_replace_all(bike$Seasons, c("Winter" = "1", "Spring" = "2", "Summer" = "3", "Autumn" = "4")))
+holiday <- as.numeric(str_replace_all(bike$Holiday, c("No Holiday" = "0", "Holiday" = "1")))
+funcday <- as.numeric(str_replace_all(bike$`Functioning Day`, c("Yes" = "1", "No" = "0")))
+
+# Alternate df w/ factors replaced with numbers
+bike_factor <- bike
+
+bike_factor$Seasons <- as.numeric(str_replace_all(bike_factor$Seasons, c("Winter" = "1", "Spring" = "2", "Summer" = "3", "Autumn" = "4")))
+bike_factor$Holiday <- as.numeric(str_replace_all(bike_factor$Holiday, c("No Holiday" = "0", "Holiday" = "1")))
+bike_factor$`Functioning Day` <- as.numeric(str_replace_all(bike_factor$`Functioning Day`, c("Yes" = "1", "No" = "0")))
+```
+
+Plotting individual variables
+```{r}
+# Combining values from bike df for facet wrap plotting
+cont_vars <- bike %>% relocate(Hour, .after = last_col()) %>% pivot_longer(`Rented Bike Count`:`Snowfall (cm)`, names_to = "xname", values_to = "x")
+
+# Requires categorical variables to be converted to numbers, see bike_factor below
+cat_vars <- bike_factor %>% dplyr::select(`Rented Bike Count`, Hour, Seasons, Holiday, `Functioning Day`) %>% pivot_longer(-`Rented Bike Count`, names_to = "xname", values_to = "x") 
+
+# Continuous variables
+# Histogram plots
+ggplot(cont_vars, aes(x = x)) + geom_histogram() + facet_wrap(~xname, scales = "free")
+ggplot(cont_vars, aes(x = x)) + geom_boxplot() + facet_wrap(~xname, scales = "free")
+
+# Categorical variables
+# Bar plot
+ggplot(cat_vars, aes(x = x)) + geom_bar() + facet_wrap(~xname, scales = "free")
+```
+
+Plotting response variable against others
+```{r, fig.height=10}
+# Combining vars w/ rbc
+cont_vars_rbc <- bike %>% pivot_longer(`Temperature(°C)`:`Snowfall (cm)`, names_to = "xname", values_to = "x")
+
+# Cont. vars vs rbc
+# Scatter plot
+cont_vars_rbc %>% ggplot(aes(x = x, y = `Rented Bike Count`)) + geom_point() + facet_wrap(~xname, scales = "free")
+
+# Cat. vars vs rbc
+# Scatter plot
+cat_vars %>% ggplot(aes(x = x, y = `Rented Bike Count`)) + geom_point() + facet_wrap(~xname, scales = "free")
+```
+
+Plotting correlation between explanatory variables
+
+```{r}
+# For cont. ex. vars
+correlation_matrix <- cor(cbind(rbc, hour, temp, humid, windspd, vis, dptemp, solrad, rain, snow))
+
+ggcorrplot(correlation_matrix)
+```
+
+# MODEL BUILDING
+
+Simple linear model with full effect
+
+```{r}
+model1 <- lm(`Rented Bike Count` ~ .-Date, data = bike)
+summary(model1)
+```
+
+- R-squared can be better
+- Most variables seem significant except visibility
+
+Try removing highly correlated variables as seen in correlation matrix
+
+```{r}
+model2 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`, data = bike)
+summary(model2)
+```
+
+- Minimal change to R-squared and adj. R-squared
+- P-values stayed significant if they already were
+- Snowfall increased in p-value to 0.11 from 0.03, choose to keep for $\alpha=0.2$ for now
+
+Drop other correlated variable dptemp
+
+```{r}
+model2.1 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`, data = bike)
+summary(model2.1)
+```
+Now solrad and snow have become insignificant, and R-squared values dropping by 0.02
+Drop solrad first, then check and drop snow if needed
+
+```{r}
+model2.2 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`, data = bike)
+summary(model2.2)
+
+model2.3 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = bike)
+summary(model2.3)
+```
+
+
+A look at residual plots for further ideas
+
+```{r, fig.height=10, fig}
+# Add values from data frame into linear model for plotting against residuals
+model2.3 %>% augment(bike) -> model2.3a
+
+# Modifying data frame for plotting exp. vs resid. using facet wrap
+model2.3a_long <- model2.3a %>% pivot_longer(c(Hour,`Temperature(°C)`, `Wind speed (m/s)`, `Visibility (10m)`, `Rainfall(mm)`), values_to = "x", names_to = "xname")
+
+# Fitted vs residuals
+ggplot(model2.3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# Explanatory vs residuals
+ggplot(model2.3a_long, aes(x = x, y = .resid)) + geom_point() + facet_wrap(~xname, scales = "free")
+
+# QQ plot against residuals
+ggplot(model2.3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+
+
+bptest(model2.3)    # Breusch-Pagan test, reject constant variance
+```
+
+- Homoscedasticity seems apparent in both response and ex. vars.
+- Some ex. vars. appear to be non-linear
+
+
+```{r}
+# Might remove this b/c it makes our model worse lol
+# Use boxCox(model2.3, family="yjPower") w/ a$x[which.max(a$y)]
+
+# YJ Transformation, Boxcox w/ neg. vals.
+#biket <- bike %>% mutate(`Rented Bike Count` = yjPower(bike$`Rented Bike Count`, 2))
+
+model3 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = bike)
+summary(model3)
+
+# Fitted vs residuals
+ggplot(model3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+
+This transformation seems more inline with a good model, but we still have some outliers and this weird line on the left.
+
+```{r}
+model4 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`-`Rainfall(mm)`, data = bike)
+summary(model4)
+
+# Fitted vs residuals
+ggplot(model4, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model4, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+
+This does not work very well for us.
+
+```{r}
+model5 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`-`Functioning Day`, data = bike)
+summary(model5)
+
+# Fitted vs residuals
+ggplot(model5, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model5, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+
