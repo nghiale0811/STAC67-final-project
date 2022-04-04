@@ -203,3 +203,26 @@ ggplot(model5, aes(x = .fitted, y = .resid)) + geom_point()
 ggplot(model5, aes(sample = .resid)) + stat_qq() + stat_qq_line()
 ```
 
+## MODEL SELECTION
+```{r}
+#Subset selection
+
+library(leaps)
+allreg <- regsubsets(I(`Rented Bike Count`^0.1818) ~ .-Date, nbest=8, data=bike)
+n = dim(bike)[1]
+aprout = summary(allreg)
+pprime = apply(aprout$which, 1, sum)
+aprout$aic <- aprout$bic - log(n) * pprime + 2 * pprime
+df = data.frame(with(aprout, round(cbind(which, rsq, adjr2, cp, bic, aic), 3)))
+df[which.max(df$aic), ] #Model with lowest AIC
+df[which.max(df$adjr2), ] #Model with highest adjusted R^2
+```
+
+
+```{r}
+step1 = stepAIC(model4, direction="both")
+
+library(MPV)
+PRESS(model4)
+PRESS(model3)
+```
