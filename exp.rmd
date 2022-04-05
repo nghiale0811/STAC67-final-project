@@ -19,7 +19,7 @@ library(olsrr)
 Reading in the data.
 
 ```{r}
-(bike <- read_excel("./SeoulBikeData.xlsx"))
+(bike <- read_xlsx("./SeoulBikeData.xlsx"))
 ```
 ## DATA ANALYSIS
 
@@ -220,9 +220,157 @@ df[which.max(df$adjr2), ] #Model with highest adjusted R^2
 
 
 ```{r}
+library(MASS)
 step1 = stepAIC(model4, direction="both")
 
 library(MPV)
 PRESS(model4)
 PRESS(model3)
+PRESS(model2)
+PRESS(model1)
+```
+```{r}
+t = rstudent(model4)
+alpha = 0.05
+
+n = dim(bike)[1]
+p.prime = length(coef(model4))
+
+t.crit = qt(1 - alpha/(2*n), n - p.prime - 1)
+round(t, 2)
+```
+
+```{r}
+which(abs(t) > t.crit)
+```
+## MACHINE LEARNING MODELS
+
+## TRAIN TEST SPLIT
+```{r}
+create_train_test <- function(data, size = 0.8, train = TRUE) {
+    n_row = nrow(data)
+    total_row = size * n_row
+    train_sample <- 1: total_row
+    if (train == TRUE) {
+        return (data[train_sample, ])
+    } else {
+        return (data[-train_sample, ])
+    }
+}
+```
+
+```{r}
+data_train <- create_train_test(bike, size = 0.8, train = TRUE)
+data_test <- create_train_test(bike, size = 0.8, train = FALSE)
+dim(data_train)
+dim(data_test)
+```
+## DECISION TREE
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+normalize <- function(x, na.rm = TRUE) {
+    return((x- min(x)) /(max(x)-min(x)))
+}
+
+n_data_train <- (data_train %>% mutate(across(where(is.numeric), normalize)))
+n_data_test <- (data_test %>% mutate(across(where(is.numeric), normalize)))
+decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)` - `Functioning Day`, data = n_data_train, method = 'anova')
+pred = predict(decisiontree, n_data_test, method = "anova")
+
+#RMSE
+RMSE(pred = pred, obs = n_data_test$`Rented Bike Count`)
+#R^2
+cor(n_data_test$`Rented Bike Count`, pred) ^ 2
+
+x = 1:length(data_test$`Rented Bike Count`)
+plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, pred, col = "blue", type = "l")
+legend(x = 1, y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```
+
+## RANDOM FOREST
+```{r}
+library(randomForest)
+data_train2 <- n_data_train
+data_test2 <- n_data_test
+names(data_train2) <- make.names(names(data_train2))
+names(data_test2) <- make.names(names(data_test2))
+set.seed(222)
+any(is.na(n_data_train2$Rented.Bike.Count))
+random_forest <- randomForest(`Rented.Bike.Count`~.-Date-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.` - `Functioning.Day`, data=data_train2, na.action=na.exclude)
+
+random_forest
+```
+
+```{r}
+p1 <- predict(random_forest, data_train2)
+plot(p1)
+p2 <- predict(random_forest, data_test2)
+
+#RMSE
+RMSE(pred = p2, obs = data_test2$`Rented.Bike.Count`)
+#R^2
+cor(data_test2$`Rented.Bike.Count`, p2) ^ 2
+
+x = 1:length(data_test2$`Rented.Bike.Count`)
+plot(x, data_test2$`Rented.Bike.Count`, col = "red", type = "l")
+lines(x, p2, col = "blue", type = "l")
+legend(x = 1, y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```
+## XGBOOST
+```{r}
+library(xgboost)
+print(data_train[, names(data_train) != "Rented Bike Count"])
+xgb_train = xgb.DMatrix(data = data.matrix(data_train[, names(data_train) != "Rented Bike Count"]), label = data_train$`Rented Bike Count`)
+xgb_test = xgb.DMatrix(data = data.matrix(data_test[, names(data_test) != "Rented Bike Count"]), label = data_test$`Rented Bike Count`)
+xgbr = xgboost(data=xgb_train, max.depth = 2, nrounds=50)
+xgbr
+```
+
+```{r}
+pred2 = predict(xgbr, xgb_test)
+
+#RMSE
+RMSE(pred2, data_test$`Rented Bike Count`)
+# R^2
+cor(data_test2$`Rented.Bike.Count`, pred2) ^ 2
+
+x = 1:length(data_test$`Rented Bike Count`)
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, pred2, col = "blue", type = "l")
+legend(x = 1, y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```
+
+## SUPPORT VECTOR REGRESSION
+```{r}
+#Load Library
+library(e1071)
+set.seed(222)
+
+#Regression with SVM
+n1_data_train = subset(n_data_train, select = -c(Seasons))
+modelsvm <- svm(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = n1_data_train, type="eps-regression")
+modelsvm
+
+#Predict using SVM regression
+predictions = predict(modelsvm, subset(n_data_test, select = -c(Seasons, `Rented Bike Count`)))
+
+#RMSE
+RMSE(n_data_test$`Rented Bike Count`, predictions)
+#R^2
+cor(n_data_test$`Rented Bike Count`, predictions) ^ 2
+```
+
+```{r}
+x = 1:length(n_data_test$`Rented Bike Count`)
+plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, predictions, col = "blue", type = "l")
+legend(x = 1, y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```
 ```
