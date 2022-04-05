@@ -416,4 +416,16 @@ plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
 lines(x, pred_y, col = "blue", type = "l")
 legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
        col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
-```     
+```
+
+# FEATURE IMPORTANCE USING CARET
+```{r}
+set.seed(222)
+library(mlbench)
+importance <- varImp(model1, scale=FALSE)
+print(importance)
+plot(importance)
+
+model6 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = bike)
+summary(model6)
+```
