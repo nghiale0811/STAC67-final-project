@@ -202,6 +202,18 @@ ggplot(model5, aes(x = .fitted, y = .resid)) + geom_point()
 # QQ plot against residuals
 ggplot(model5, aes(sample = .resid)) + stat_qq() + stat_qq_line()
 ```
+# FEATURE IMPORTANCE USING CARET
+```{r}
+set.seed(222)
+library(mlbench)
+importance <- varImp(model1, scale=FALSE)
+print(importance)
+plot(importance)
+
+model6 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = bike)
+summary(model6)
+```
+
 
 ## MODEL SELECTION
 ```{r}
@@ -276,7 +288,7 @@ normalize <- function(x, na.rm = TRUE) {
 
 n_data_train <- (data_train %>% mutate(across(where(is.numeric), normalize)))
 n_data_test <- (data_test %>% mutate(across(where(is.numeric), normalize)))
-decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)` - `Functioning Day`, data = data_train, method = 'anova')
+decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = data_train, method = 'anova')
 pred = predict(decisiontree, data_test, method = "anova")
 
 #RMSE
@@ -299,7 +311,7 @@ data_test2 <- data_test
 names(data_train2) <- make.names(names(data_train2))
 names(data_test2) <- make.names(names(data_test2))
 set.seed(222)
-random_forest <- randomForest(`Rented.Bike.Count`~.-Date-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.` - `Functioning.Day`, data=data_train2, na.action=na.exclude)
+random_forest <- randomForest(`Rented.Bike.Count`~.-Date-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.`, data=data_train2, na.action=na.exclude)
 
 random_forest
 ```
@@ -324,8 +336,8 @@ legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y")
 ```{r}
 library(xgboost)
 print(data_train[, names(data_train) != "Rented Bike Count"])
-xgb_train = xgb.DMatrix(data = data.matrix(data_train[, names(data_train) != "Rented Bike Count"]), label = data_train$`Rented Bike Count`)
-xgb_test = xgb.DMatrix(data = data.matrix(data_test[, names(data_test) != "Rented Bike Count"]), label = data_test$`Rented Bike Count`)
+xgb_train = xgb.DMatrix(data = data.matrix(subset(data_train, select = -c(Seasons, `Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`))), label = data_train$`Rented Bike Count`)
+xgb_test = xgb.DMatrix(data = data.matrix(subset(data_test, select = -c(Seasons, `Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`))), label = data_test$`Rented Bike Count`)
 xgbr = xgboost(data=xgb_train, max.depth = 2, nrounds=50)
 xgbr
 ```
@@ -360,24 +372,24 @@ modelsvm
 predictions = predict(modelsvm, subset(n_data_test, select = -c(Seasons, `Rented Bike Count`)))
 
 #RMSE
-RMSE(n_data_test$`Rented Bike Count`, predictions)
+RMSE(predictions * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`), data_test$`Rented Bike Count`)
 #R^2
-cor(n_data_test$`Rented Bike Count`, predictions) ^ 2
+cor(data_test$`Rented Bike Count`, predictions* (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
 ```
 
 ```{r}
 x = 1:length(n_data_test$`Rented Bike Count`)
-plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
-lines(x, predictions, col = "blue", type = "l")
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, predictions * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`), col = "blue", type = "l")
 legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
        col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
 ```
 ##LightGBM
 ```{r}
 library(lightgbm)
-X=data.matrix(data_train[, names(data_train) != "Rented Bike Count"])
+X=data.matrix(subset(data_train, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
 y=data.matrix(data_train[, names(data_train) == "Rented Bike Count"])
-X_test=data.matrix(data_test[, names(data_test) != "Rented Bike Count"])
+X_test=data.matrix(subset(data_test, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
 y_test=data.matrix(data_test[, names(data_test) == "Rented Bike Count"])
 
 dtrain <- lgb.Dataset(X, label = y)
@@ -400,32 +412,47 @@ legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y")
 ## KNN
 ```{r}
 library(caret)
-X2=data.matrix(n_data_train[, names(n_data_train) != "Rented Bike Count"])
+X2=data.matrix(subset(n_data_train, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
 y2=data.matrix(n_data_train[, names(n_data_train) == "Rented Bike Count"])
-X_test2=data.matrix(n_data_test[, names(n_data_test) != "Rented Bike Count"])
+X_test2=data.matrix(subset(n_data_test, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
 y_test2=data.matrix(n_data_test[, names(n_data_test) == "Rented Bike Count"])
 knnmodel = knnreg(X2, y2)
 pred_y = predict(knnmodel, X_test2)
 #RMSE
-RMSE(n_data_test$`Rented Bike Count`, pred_y)
+RMSE(data_test$`Rented Bike Count`, pred_y * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`))
 #R^2
-cor(n_data_test$`Rented Bike Count`, pred_y) ^ 2
+cor(data_test$`Rented Bike Count`, pred_y * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
 
 x = 1:length(data_test$`Rented Bike Count`)
-plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
-lines(x, pred_y, col = "blue", type = "l")
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, pred_y * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`), col = "blue", type = "l")
 legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
        col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
 ```
 
-# FEATURE IMPORTANCE USING CARET
+##NEURAL NETWORK
 ```{r}
+library(nnet)
 set.seed(222)
-library(mlbench)
-importance <- varImp(model1, scale=FALSE)
-print(importance)
-plot(importance)
+data_train3 <- n_data_train[, -c(1)] # exclude date
+data_test3 <- n_data_test[, -c(1, 2)] # exclude date, rented bike count
+names(data_train3) <- make.names(names(data_train3))
+names(data_test3) <- make.names(names(data_test3))
+data_train3 <- data.matrix(data_train3)
+data_test3 <- data.matrix(data_test3) 
 
-model6 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = bike)
-summary(model6)
+nn <- nnet(`Rented.Bike.Count`~.-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.`, data = data_train3, linout = FALSE, size=50, maxit = 2000, rang=0.05, decay=5e-4, trace = TRUE)
+
+nnpred = predict(nn, data_test3)
+#RMSE
+RMSE(data_test$`Rented Bike Count`, nnpred * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`))
+#R^2
+cor(data_test$`Rented Bike Count`, nnpred * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
+
+x = 1:length(data_test$`Rented Bike Count`)
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, nnpred * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`), col = "blue", type = "l")
+legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
 ```
+
