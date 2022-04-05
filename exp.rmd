@@ -379,6 +379,7 @@ X=data.matrix(data_train[, names(data_train) != "Rented Bike Count"])
 y=data.matrix(data_train[, names(data_train) == "Rented Bike Count"])
 X_test=data.matrix(data_test[, names(data_test) != "Rented Bike Count"])
 y_test=data.matrix(data_test[, names(data_test) == "Rented Bike Count"])
+
 dtrain <- lgb.Dataset(X, label = y)
 dtest <- lgb.Dataset.create.valid(dtrain, X_test, label = y_test)
 model <- lightgbm(params = list(objective = "regression", metric = "l2"), data = dtrain)
