@@ -276,16 +276,16 @@ normalize <- function(x, na.rm = TRUE) {
 
 n_data_train <- (data_train %>% mutate(across(where(is.numeric), normalize)))
 n_data_test <- (data_test %>% mutate(across(where(is.numeric), normalize)))
-decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)` - `Functioning Day`, data = n_data_train, method = 'anova')
-pred = predict(decisiontree, n_data_test, method = "anova")
+decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)` - `Functioning Day`, data = data_train, method = 'anova')
+pred = predict(decisiontree, data_test, method = "anova")
 
 #RMSE
-RMSE(pred = pred, obs = n_data_test$`Rented Bike Count`)
+RMSE(pred = pred, obs = data_test$`Rented Bike Count`)
 #R^2
-cor(n_data_test$`Rented Bike Count`, pred) ^ 2
+cor(data_test$`Rented Bike Count`, pred) ^ 2
 
 x = 1:length(data_test$`Rented Bike Count`)
-plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
 lines(x, pred, col = "blue", type = "l")
 legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
        col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
@@ -294,8 +294,8 @@ legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y")
 ## RANDOM FOREST
 ```{r}
 library(randomForest)
-data_train2 <- n_data_train
-data_test2 <- n_data_test
+data_train2 <- data_train
+data_test2 <- data_test
 names(data_train2) <- make.names(names(data_train2))
 names(data_test2) <- make.names(names(data_test2))
 set.seed(222)
@@ -372,4 +372,47 @@ lines(x, predictions, col = "blue", type = "l")
 legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
        col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
 ```
+##LightGBM
+```{r}
+library(lightgbm)
+X=data.matrix(data_train[, names(data_train) != "Rented Bike Count"])
+y=data.matrix(data_train[, names(data_train) == "Rented Bike Count"])
+X_test=data.matrix(data_test[, names(data_test) != "Rented Bike Count"])
+y_test=data.matrix(data_test[, names(data_test) == "Rented Bike Count"])
+dtrain <- lgb.Dataset(X, label = y)
+dtest <- lgb.Dataset.create.valid(dtrain, X_test, label = y_test)
+model <- lightgbm(params = list(objective = "regression", metric = "l2"), data = dtrain)
+lgbmpred = predict(model, X_test)
 ```
+```{r}
+#RMSE
+RMSE(pred = lgbmpred, obs = data_test$`Rented Bike Count`)
+#R^2
+cor(data_test$`Rented Bike Count`, lgbmpred) ^ 2
+
+x = 1:length(data_test$`Rented Bike Count`)
+plot(x, data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, lgbmpred, col = "blue", type = "l")
+legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```
+## KNN
+```{r}
+library(caret)
+X2=data.matrix(n_data_train[, names(n_data_train) != "Rented Bike Count"])
+y2=data.matrix(n_data_train[, names(n_data_train) == "Rented Bike Count"])
+X_test2=data.matrix(n_data_test[, names(n_data_test) != "Rented Bike Count"])
+y_test2=data.matrix(n_data_test[, names(n_data_test) == "Rented Bike Count"])
+knnmodel = knnreg(X2, y2)
+pred_y = predict(knnmodel, X_test2)
+#RMSE
+RMSE(n_data_test$`Rented Bike Count`, pred_y)
+#R^2
+cor(n_data_test$`Rented Bike Count`, pred_y) ^ 2
+
+x = 1:length(data_test$`Rented Bike Count`)
+plot(x, n_data_test$`Rented Bike Count`, col = "red", type = "l")
+lines(x, pred_y, col = "blue", type = "l")
+legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y"), 
+       col = c("red", "blue"), box.lty = 1, cex = 0.8, lty = c(1, 1))
+```     
