@@ -176,6 +176,16 @@ ggplot(model3, aes(x = .fitted, y = .resid)) + geom_point()
 # QQ plot against residuals
 ggplot(model3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
 ```
+```{r}
+rf = rstandard(model2.3)
+s.hat = abs(rf)
+rf2 = lm(s.hat~.-Date, data=bike[-c(2)])
+var.s = (predict(rf2))^2
+
+model3b <- lm(`Rented Bike Count` ~ .-Date, data = bike, weight = 1/var.s)
+summary(model3b)
+```
+We have tried WLS, but it doesn't help. Doing Box-Cox or Yeo-Johnson would be a better
 
 This transformation seems more inline with a good model, but we still have some outliers and this weird line on the left.
 
@@ -205,6 +215,7 @@ ggplot(model5, aes(sample = .resid)) + stat_qq() + stat_qq_line()
 # FEATURE IMPORTANCE USING CARET
 ```{r}
 set.seed(222)
+library(caret)
 library(mlbench)
 importance <- varImp(model1, scale=FALSE)
 print(importance)
@@ -214,6 +225,24 @@ model6 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Temperature(°C)`-`Dew poin
 summary(model6)
 ```
 
+```{r}
+#Weighted least squares
+w = 1:dim(bike)[1]
+
+rf = rstandard(model3)
+s.hat = abs(rf)
+rf2 = lm(s.hat~.-Date, data=bike[-c(2)])
+var.s = (predict(rf2))^2
+
+model7 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date, data = bike, weights=w)
+summary(model7)
+
+# Fitted vs residuals
+#ggplot(model3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+#ggplot(model3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
 
 ## MODEL SELECTION
 ```{r}
@@ -233,13 +262,29 @@ df[which.max(df$adjr2), ] #Model with highest adjusted R^2
 
 ```{r}
 library(MASS)
-step1 = stepAIC(model4, direction="both")
+library(stats)
+#step1 = stepAIC(model4, direction="both")
+step2 = stepAIC(model3, direction="backward")
+pprime2 = step2$rank
+aic = step2$anova[6][1]
+bic = aic + log(n) * pprime2 - 2 * pprime2
+bic
 
 library(MPV)
-PRESS(model4)
 PRESS(model3)
-PRESS(model2)
-PRESS(model1)
+
+#DFFITS
+arr = dffits(model3)
+print(length(which(arr > 1)))
+
+#DFBETAS
+arr1 = dfbetas(model3)
+print(length(which(arr > 1)))
+
+#COOK'S DISTANCE
+library(car)
+arr2 = cooks.distance(model3)
+print(length(which(arr > qf(0.2, pprime2, n-pprime2))))
 ```
 ```{r}
 t = rstudent(model4)
@@ -277,6 +322,35 @@ data_test <- create_train_test(bike, size = 0.8, train = FALSE)
 dim(data_train)
 dim(data_test)
 ```
+```{r}
+model7_training <- lm(I(`Rented Bike Count`^0.1818) ~ ., data = data_train[, -c(1)], weight = 1:dim(data_train)[1]) # excluding date
+#model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = data_train[, -c(1)]) # excluding date
+mean(model7_training$residuals^2)
+#summary(model6_training)
+model7_pred <- predict.lm(model7_training, data_test[,-c(1)]) # excluding date, rented bike
+mspr2 = mean((data_test$`Rented Bike Count` - model7_pred)^2)
+print(mspr2)
+print(PRESS(model7_training))
+
+#This is to compare with ML models
+print(RMSE(data_test$`Rented Bike Count`, model7_pred))
+print(cor(data_test$`Rented Bike Count`, model7_pred) ^ 2)
+```
+```{r}
+model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = data_train[, -c(1)]) # excluding date
+#model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = data_train[, -c(1)]) # excluding date
+mean(model6_training$residuals^2)
+#summary(model6_training)
+model6_pred <- predict.lm(model6_training, data_test[,-c(1)]) # excluding date, rented bike
+mspr = mean((data_test$`Rented Bike Count` - model6_pred)^2)
+print(mspr)
+print(PRESS(model6_training))
+
+#This is to compare with ML models
+print(RMSE(data_test$`Rented Bike Count`, model6_pred))
+print(cor(data_test$`Rented Bike Count`, model6_pred) ^ 2)
+```
+
 ## DECISION TREE
 ```{r}
 library(caret)
@@ -435,7 +509,7 @@ legend(x = "topleft", y = 38,  legend = c("original test_y", "predicted test_y")
 library(nnet)
 set.seed(222)
 data_train3 <- n_data_train[, -c(1)] # exclude date
-data_test3 <- n_data_test[, -c(1)] # exclude date, rented bike count
+data_test3 <- n_data_test[, -c(1)] # exclude date
 names(data_train3) <- make.names(names(data_train3))
 names(data_test3) <- make.names(names(data_test3))
 data_train3 <- data.matrix(data_train3)
