@@ -1,5 +1,5 @@
 ---
-title: "STAC67 Case Study Project: Analyzing The Factors That Affect Risk of Cervical Cancer Relapse"
+title: "STAC67 Case Study Project: Analyzing The Factors That Affect Rental Bike Count in Seoul"
 subtitle: "Project Group #13"
 output: pdf_document
 ---
