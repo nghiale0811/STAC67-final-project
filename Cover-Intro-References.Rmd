@@ -1,0 +1,35 @@
+---
+title: "STAC67 Case Study Project: Analyzing The Factors That Affect Risk of Cervical Cancer Relapse"
+subtitle: "Project Group #13"
+output: pdf_document
+---
+
+\vspace{250pt}
+
+# Team Members:
+
+## Joshua Garvida (1003042520)
+Background and Significance, References
+
+## Jimmy Deng (1006280472)
+Exploratory Data Analysis, Graphs/Visuals
+
+## Daniyal Iqbal (1006145805)
+Data Handling, Model Selection and Checking
+
+## Nghia Le (1007523958)
+ML Models, Discussion/Conclusion, Model Diagnostics
+
+\newpage
+
+## Introduction
+
+The initial concept of a bicycle sharing system started in 1965 in Amsterdam (Shaheen, Guzman, & Zhang, 2010), with the intent to better environmental and social welfare. Through systems in which people rent a bicycle at minimal costs at one docking station and return it in another, bicycle sharing as a whole has significant impacts in “increasing the use of transportation, minimizing greenhouse gas emissions, enhancing public health and also traffic troubles.” (Park & Cho, 2020) The introduction of rental bikes has shown tremendous growth as there are more than 50 countries implementing this kind of system, informed by the renting of bicycles being cost effective and at certain instances being free of charge. However, a problem arises as the constant rise of users means a higher demand for accessible bicycles. Therefore, there is a need for the supply of rental bikes to match this demand to ensure accessibility and decrease wait times.   This is the case for “Ddareungi,” or “Seoul Bike,” the bicycle sharing system in South Korea started in 2015. Through the “Seoul Bike” data and understanding the significance of various weather information, our research aims to estimate the optimal amount of rental bikes needed at each hour of the day. 
+
+## References
+
+E, S. V., Park, J., & Cho, Y. (2020). Using data mining techniques for bike sharing demand prediction in Metropolitan City. Computer Communications, 153, 353–366. https://doi.org/10.1016/j.comcom.2020.02.007 
+
+E, S. V., & Cho, Y. (2020). A rule-based model for Seoul bike sharing demand prediction using weather data. European Journal of Remote Sensing, 53(sup1), 166–183. https://doi.org/10.1080/22797254.2020.1725789 
+
+E, S. V., Park, J., & Cho, Y. (2020). Seoul bike trip duration prediction using data mining techniques. IET Intelligent Transport Systems, 14(11), 1465–1474. https://doi.org/10.1049/iet-its.2019.0796 
