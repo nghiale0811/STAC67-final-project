@@ -1,0 +1,607 @@
+---
+title: "R Notebook"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Libraries used in the case study.
+```{r include=FALSE, message=FALSE, warning=FALSE, results="hide"}
+library(tidyverse)
+library(readxl)
+library(ggcorrplot)
+library(broom)
+library(MASS)
+library(car)
+library(lmtest)
+library(olsrr)
+library(corrr)
+library(gridExtra)
+library(grid)
+library(pander)
+```
+
+## EXPLORATORY DATA ANALYSIS
+#### Description of dataset
+The data set used in this case study comes from data.Seoul.kr as part of data collection done by the Seoul Metropolitan Government between January 2017 and November 2018 on several variables of data points for predicting supply of rental bikes per hour. The data set is comes in an excel file with 14 variables and 8760 observations.
+
+```{r}
+bike <- read_excel("./SeoulBikeData.xlsx")    # Reading in the data set
+```
+
+The 14 variables in the data set include dates, quantitative variables, and qualitative variables. The quantitative variables include, rented bike count, hour, temperature, humidity, wind speed, visibility, dew point temperature, solar radiation, rainfall, and snowfall. The qualitative variables include, seasons, holiday, and functioning day, where the latter two are binary variables dictating whether that day is a holiday/functioning day or not and the former indicates the season it is. The identifier for each observation consists of the date and hour. The response variable in this data set is Rented Bike Count and the rest are explanatory variables.
+
+A sample of the data in the data set:
+```{r, echo=FALSE}
+# CONSIDER REMOVING THIS IT TAKES UP TOO MUCH SPACE @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+# Setting options for pander rendering of tables
+panderOptions("table.split.table", 120)
+pander(sample_n(bike, 7), split.cells = 16)    # Samples 7 random observations in the data set
+```
+*Note: some of the dates may appear as integers because of the formatting of dates as number of days since 1900-01-01 in Excel, where the file comes from.*
+
+#### Extracting and cleaning data
+For this data set, we chose discarded date as the sole identifier and kept hour for our analysis because the hour of day can have a more observable effect on the response compared to specific days in the year (as seen later in graph analysis). Furthermore, we decided to keep hour as a quantitative variable instead of qualitative due to time having a set order. Further analysis may include visualizing and exploring this data set as a times series, but was forgone in this case study for simplicity.
+```{r, echo=FALSE}
+# Response variable
+rbc <- bike$`Rented Bike Count`
+# Explanatory variables
+# Quantitative variables
+hour <- bike$Hour
+temp <- bike$`Temperature(°C)`
+humid <- bike$`Humidity(%)`
+windspd <- bike$`Wind speed (m/s)`
+vis <- bike$`Visibility (10m)`
+dptemp <- bike$`Dew point temperature(°C)`
+solrad <- bike$`Solar Radiation (MJ/m2)`
+rain <- bike$`Rainfall(mm)`
+snow <- bike$`Snowfall (cm)`
+# Categorical variables
+season <- as.numeric(str_replace_all(bike$Seasons, c("Winter" = "1", "Spring" = "2",
+                                                     "Summer" = "3", "Autumn" = "4")))
+holiday <- as.numeric(str_replace_all(bike$Holiday, c("No Holiday" = "0", "Holiday" = "1")))
+funcday <- as.numeric(str_replace_all(bike$`Functioning Day`, c("Yes" = "1", "No" = "0")))
+```
+
+#### Plotting individual variables
+With the data imported, we can begin with taking an overview of the data by plotting the individual variables to illustrate the general distributions of our data. 
+```{r, fig.width=10, echo=FALSE}
+# NOTE: the plotting techniques used here come from Dr. Ken Butler's course STAC33 and textbook PASIAS
+# Combining columns of quantitative variables to be plotted together
+cont_vars <- bike %>% pivot_longer(`Rented Bike Count`:`Snowfall (cm)`,
+                                   names_to = "xname", values_to = "x")
+# Combining columns of categorical variables to be plotted together
+cat_vars <- bike %>% 
+  dplyr::select(`Rented Bike Count`, Seasons, Holiday, `Functioning Day`) %>%
+  pivot_longer(-`Rented Bike Count`, names_to = "xname", values_to = "x") 
+# Continuous variables
+# Histogram plots
+ggplot(cont_vars, aes(x = x)) +
+  geom_histogram(fill = "slategray4", color = "white", bins = 24) +
+  facet_wrap(~xname, scales = "free") + labs(title = "Histograms of Continous Variables")
+# Box plots
+ggplot(cont_vars, aes(x = x)) +
+  geom_boxplot(fill = "slategray4") + facet_wrap(~xname, scales = "free") +
+  labs(title = "Boxplots of Continous Variables")
+```
+Here, it is seen that most of the quantitative variables are skewed in some fashion. Notably, rainfall, snowfall, solar radiation, wind speed have extreme right skew distributions, and visibility has an extreme left skew. Hour has a uniform distribution, and the response variable has a right skew distribution. Humidity, dew point temperature, and temperature have minor skews in their distribution.
+
+```{r fig.width=10, out.height="30%", echo=FALSE}
+# Categorical variables
+# Bar plot
+ggplot(cat_vars, aes(x = fct_inorder(x))) +
+  geom_bar(fill = "slategray4") + facet_wrap(~xname, scales = "free") +
+  labs(title = "Bar plots of Categorical Variables", x = "factors")
+```
+
+For the categorical variables, season appears to be uniformly distributed and the other two have extreme right skews.
+
+```{r, echo=FALSE}
+# NOTE: Data frame manipulation techniques come from Dr. Ken Butler's course STAC33 and textbook PASIAS
+# Setting options for pander rendering of tables
+panderOptions("table.split.table", Inf)
+# Function for finding mode of a vector
+mode <- function(x) {
+  unique_val <- unique(x)    # Get vector of unique values in x
+  max_val <- which.max(tabulate(match(x, unique_val)))    # Get max occurrence of each unique value in x
+  m <- unique_val[max_val]     # Get value with max occurrences
+  return(m)
+}
+# Some statistics of these variables
+# Summary statistics table for quantitative variables
+bike %>% dplyr::select(-c(Date, Seasons, Holiday, `Functioning Day`)) %>%    # Take all quantitative variables
+  pivot_longer(everything(), names_to = "variable", values_to = "x") %>%     # Combine their values sorted by their column
+  group_by(variable) %>%
+  summarize(mean = mean(x), median = median(x), mode = mode(x),sd = sd(x), var = var(x),    # Create summary table
+            Q1 = quantile(x, 0.25),Q3 = quantile(x, 0.75), max = max(x), min = min(x)) %>%
+              mutate_at(2:9,round, 2) -> summary_cont
+pander(summary_cont)
+```
+
+Here we have generated a summary table of some statistics of the quantitative variables. For some of the extreme skew distributions from before, we can see that some of the quartile values correspond with the minimum such as rainfall/snowfall. These zero values in our data may not be very helpful in predicting our response value and could be considered for removal in our model. Likewise for visibility, most values seem to correspond with the maximum, which means a possible limit in measurement of data. This limit could be obscuring some trends past value of 2000 and may also be considered for removal.
+
+#### Plotting response variable against others
+Now that we've made some observations on the individual variables themselves, we will plot these variables against the Rented Bike Count to see how their values relate to the number of bikes rented.
+
+```{r, fig.width=10, echo=FALSE}
+# NOTE: the plotting techniques used here come from Dr. Ken Butler's course STAC33 and textbook PASIAS
+# Combining quantitative variables with Rented Bike Count from bike to be plotted against
+cont_vars_rbc <- bike %>% pivot_longer(`Hour`:`Snowfall (cm)`, names_to = "xname", values_to = "x")
+# Cont. vars vs rbc
+# Scatter plot
+cont_vars_rbc %>% ggplot(aes(x = x, y = `Rented Bike Count`)) + geom_point(colour = "slategray4") +
+  facet_wrap(~xname, scales = "free") + labs(title = "Scatterplots of Continous Variables against Response")
+```
+
+From these plots, we can see that some variables have linear trends such as temperature, and dew point temperature. Other variables have non-linear trends, which may be better fitted with some polynomial or logarithmic methods later on.
+
+```{r fig.width=10, out.height="30%", echo=FALSE}
+# Cat. vars vs rbc
+# Box plot
+cat_vars %>% ggplot(aes(x = fct_inorder(x), y = `Rented Bike Count`)) + geom_boxplot(fill = "slategray4") +
+  facet_wrap(~xname, scales = "free") + labs(title = "Boxplots of Categorical Variables against Response", x = "factors")
+```
+
+For categorical variables, we can see how different factors affect the rented bike count. Some observations are, rented bike count is always 0 for non-functioning day, and bike count is higher in warmer months.
+
+#### Plotting correlation between explanatory variables
+After looking and noticing some observations from plots, we can further explore relationships in our model my looking at correlation between the variables and the response.
+```{r out.height="25%", echo=FALSE}
+# For quantitative variables
+correlation_matrix <- cor(cbind(hour, temp, humid, windspd, vis, dptemp, solrad, rain, snow))
+pander(round(correlation_matrix, 3))
+# Correlation matrix
+ggcorrplot(correlation_matrix, title = "Correlation Matrix of continuous Explanatory Variables")
+# Abs. Corr. matrix
+ggcorrplot(abs(correlation_matrix), title = "Absolute values for Correlation Matrix")
+```
+
+From correlation matrix and heat map, we can see signs of multicolinearity from high correlation between dew point temperature and temperature. Note that humidity has noticeably moderate values of correlation with a few other variables, which we should keep in mind although it is not high enough to be worrying. Additionally, these values for humidity are negative, meaning that humidity appears to inversely proportional these other variables.
+
+We can also look at how quantitative variables correlate to  rented bike count.
+```{r echo=FALSE, message=FALSE, warning=FALSE, out.width="50%"}
+# Correlation to response
+cbind(rbc, hour, temp, humid, windspd, vis, dptemp, solrad, rain, snow) %>% 
+  correlate() %>% focus(rbc) %>% arrange(desc(rbc)) %>%
+  rename(Correlation = "rbc") -> corr_resp
+# Heat map for correlation to response
+rbc_corr_map <- ggplot(corr_resp %>% mutate(corr = "rbc"), aes(x= corr, y = fct_inorder(term), fill = Correlation)) + geom_tile() + scale_y_discrete(limits=rev) + labs(title = "Correlation between Continuous Variables and Response", y = "variable", x = "response")
+# Arranged output for paper with table next to plot
+rbc_corr_map
+grid.newpage()
+grid.table(corr_resp)
+```
+
+Correlation between continuous explanatory variables and response shows that temperature is the most correlated value. Lowest correlation is between rain, snow, and humidity. The takeaway here is that the higher the correlation between rented bike count and the variable is, the more positive contribution that variable gives to the value of rented bike count. With this in mind, variables like temperature and hour will help predict the rented bike count best, while variables at the bottom with negative correlation, will predict against the response, or will decrease the value of rented bike count.
+t(correlation_matrix)
+
+# MODEL BUILDING
+
+Simple linear model with full effect
+
+```{r, echo=FALSE}
+model1 <- lm(`Rented Bike Count` ~ .-Date, data = bike)
+summary(model1)
+```
+
+- R-squared can be better
+- Most variables seem significant except visibility
+
+Try removing highly correlated variables as seen in correlation matrix
+
+```{r, echo=FALSE}
+model2 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`, data = bike)
+summary(model2)
+```
+
+- Minimal change to R-squared and adj. R-squared
+- P-values stayed significant if they already were
+- Snowfall increased in p-value to 0.11 from 0.03, choose to keep for $\alpha=0.2$ for now
+
+Drop other correlated variable dptemp
+
+```{r, echo=FALSE}
+model2.1 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`, data = bike)
+model2.1$call
+summary(model2.1)$r.squared
+summary(model2.1)$adj.r.squared
+```
+Now solrad and snow have become insignificant, and R-squared values dropping by 0.02
+Drop solrad first, then check and drop snow if needed
+
+```{r, echo=FALSE}
+model2.2 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`, data = bike)
+model2.2$call
+summary(model2.2)$r.squared
+summary(model2.2)$adj.r.squared
+
+model2.3 <- lm(`Rented Bike Count` ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = bike)
+model2.3$call
+summary(model2.3)$r.squared
+summary(model2.3)$adj.r.squared
+```
+
+
+A look at residual plots for further ideas
+
+```{r, fig.height=10, fig, out.width="30%"}
+# Add values from data frame into linear model for plotting against residuals
+model2.3 %>% augment(bike) -> model2.3a
+
+# Modifying data frame for plotting exp. vs resid. using facet wrap
+model2.3a_long <- model2.3a %>% pivot_longer(c(Hour,`Temperature(°C)`, `Wind speed (m/s)`, `Visibility (10m)`, `Rainfall(mm)`), values_to = "x", names_to = "xname")
+
+# Fitted vs residuals
+ggplot(model2.3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# Explanatory vs residuals
+#ggplot(model2.3a_long, aes(x = x, y = .resid)) + geom_point() + facet_wrap(~xname, scales = "free")
+
+# QQ plot against residuals
+ggplot(model2.3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+
+
+bptest(model2.3)    # Breusch-Pagan test, reject constant variance
+```
+
+- Homoscedasticity seems apparent in both response and ex. vars.
+- Some ex. vars. appear to be non-linear
+
+
+```{r, echo=FALSE, out.width="30%"}
+# Might remove this b/c it makes our model worse lol
+# Use boxCox(model2.3, family="yjPower") w/ a$x[which.max(a$y)]
+
+# YJ Transformation, Boxcox w/ neg. vals.
+#biket <- bike %>% mutate(`Rented Bike Count` = yjPower(bike$`Rented Bike Count`, 2))
+
+model3 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = bike)
+model3$call
+summary(model3)$r.squared
+summary(model3)$adj.r.squared
+
+# Fitted vs residuals
+ggplot(model3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+```{r, echo=FALSE}
+rf = rstandard(model2.3)
+s.hat = abs(rf)
+rf2 = lm(s.hat~.-Date, data=bike[-c(2)])
+var.s = (predict(rf2))^2
+
+model3b <- lm(`Rented Bike Count` ~ .-Date, data = bike, weight = 1/var.s)
+model3b$call
+summary(model3b)$r.squared
+summary(model3b)$adj.r.squared
+```
+We have tried WLS, but it doesn't help. Doing Box-Cox or Yeo-Johnson would be a better
+
+This transformation seems more inline with a good model, but we still have some outliers and this weird line on the left.
+
+```{r, echo=FALSE, out.width="30%"}
+model4 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`-`Rainfall(mm)`, data = bike)
+model4$call
+summary(model4)$r.squared
+summary(model4)$adj.r.squared
+
+# Fitted vs residuals
+ggplot(model4, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model4, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+
+This does not work very well for us.
+
+```{r, echo=FALSE, out.width="30%"}
+model5 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`-`Functioning Day`, data = bike)
+model5$call
+summary(model5)$r.squared
+summary(model5)$adj.r.squared
+
+# Fitted vs residuals
+ggplot(model5, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+ggplot(model5, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+# FEATURE IMPORTANCE USING CARET
+```{r, include=FALSE}
+set.seed(222)
+library(caret)
+library(mlbench)
+```
+
+```{r}
+importance <- varImp(model1, scale=FALSE)
+print(importance)
+
+model6 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = bike)
+model6$call
+summary(model6)$r.squared
+summary(model6)$adj.r.squared
+```
+
+```{r, include=FALSE}
+#Weighted least squares
+w = 1:dim(bike)[1]
+
+rf = rstandard(model3)
+s.hat = abs(rf)
+rf2 = lm(s.hat~.-Date, data=bike[-c(2)])
+var.s = (predict(rf2))^2
+
+model7 <- lm(I(`Rented Bike Count`^0.1818) ~ .-Date, data = bike, weights=w)
+model7$call
+summary(model7)$r.squared
+summary(model7)$adj.r.squared
+
+# Fitted vs residuals
+#ggplot(model3, aes(x = .fitted, y = .resid)) + geom_point()
+
+# QQ plot against residuals
+#ggplot(model3, aes(sample = .resid)) + stat_qq() + stat_qq_line()
+```
+
+## MODEL SELECTION
+```{r}
+#Subset selection
+
+library(leaps)
+allreg <- regsubsets(I(`Rented Bike Count`^0.1818) ~ .-Date, nbest=8, data=bike)
+n = dim(bike)[1]
+aprout = summary(allreg)
+pprime = apply(aprout$which, 1, sum)
+aprout$aic <- aprout$bic - log(n) * pprime + 2 * pprime
+df = data.frame(with(aprout, round(cbind(which, rsq, adjr2, cp, bic, aic), 3)))
+df[which.max(df$aic), ] #Model with lowest AIC
+df[which.max(df$adjr2), ] #Model with highest adjusted R^2
+```
+
+
+```{r, include=FALSE}
+library(MASS)
+library(stats)
+#step1 = stepAIC(model4, direction="both")
+```
+
+```{r, message=FALSE, warning=FALSE}
+step2 = stepAIC(model3, direction="backward")
+pprime2 = step2$rank
+aic = step2$anova[6][1]
+bic = aic + log(n) * pprime2 - 2 * pprime2
+bic
+
+library(MPV)
+PRESS(model3)
+
+#DFFITS
+arr = dffits(model3)
+print(length(which(arr > 1)))
+
+#DFBETAS
+arr1 = dfbetas(model3)
+print(length(which(arr > 1)))
+
+#COOK'S DISTANCE
+library(car)
+arr2 = cooks.distance(model3)
+print(length(which(arr > qf(0.2, pprime2, n-pprime2))))
+```
+```{r, echo=TRUE, results="hide", message=FALSE, warning=FALSE}
+t = rstudent(model4)
+alpha = 0.05
+
+n = dim(bike)[1]
+p.prime = length(coef(model4))
+
+t.crit = qt(1 - alpha/(2*n), n - p.prime - 1)
+round(t, 2)
+```
+
+```{r}
+which(abs(t) > t.crit)
+```
+
+## TRAIN TEST SPLIT
+We need to validate our model, and to do so we need to create a training set and a test set. We split our initial dataset into a training set and a test set with proportion 80:20. 
+
+```{r}
+create_train_test <- function(data, size = 0.8, train = TRUE) {
+    n_row = nrow(data)
+    total_row = size * n_row
+    train_sample <- 1: total_row
+    if (train == TRUE) {
+        return (data[train_sample, ])
+    } else {
+        return (data[-train_sample, ])
+    }
+}
+```
+
+```{r}
+data_train <- create_train_test(bike, size = 0.8, train = TRUE)
+data_test <- create_train_test(bike, size = 0.8, train = FALSE)
+dim(data_train)
+dim(data_test)
+```
+
+```{r, include=FALSE}
+model7_training <- lm(I(`Rented Bike Count`^0.1818) ~ ., data = data_train[, -c(1)], weight = 1:dim(data_train)[1]) # excluding date
+#model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = data_train[, -c(1)]) # excluding date
+mean(model7_training$residuals^2)
+#summary(model6_training)
+model7_pred <- predict.lm(model7_training, data_test[,-c(1)]) # excluding date, rented bike
+mspr2 = mean((data_test$`Rented Bike Count` - model7_pred)^2)
+print(mspr2)
+print(PRESS(model7_training))
+
+#This is to compare with ML models
+print(RMSE(data_test$`Rented Bike Count`, model7_pred))
+print(cor(data_test$`Rented Bike Count`, model7_pred) ^ 2)
+```
+
+We now run the model validation for our best performing multiple regression model. First, we would fit the model on the training set. 
+```{r}
+model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Humidity(%)`-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = data_train[, -c(1)]) # excluding date
+#model6_training <- lm(I(`Rented Bike Count`^0.1818) ~ .-`Temperature(°C)`-`Dew point temperature(°C)`-`Visibility (10m)`-`Snowfall (cm)`-`Wind speed (m/s)`, data = data_train[, -c(1)]) # excluding date
+mean(model6_training$residuals^2)
+#summary(model6_training)
+model6_pred <- predict.lm(model6_training, data_test[,-c(1)]) # excluding date, rented bike
+mspr = mean((data_test$`Rented Bike Count` - model6_pred)^2)
+print(mspr)
+print(PRESS(model6_training))
+
+#This is to compare with ML models
+print(RMSE(data_test$`Rented Bike Count`, model6_pred))
+print(cor(data_test$`Rented Bike Count`, model6_pred) ^ 2)
+```
+## MACHINE LEARNING MODELS
+
+## DECISION TREE
+```{r, include=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+normalize <- function(x, na.rm = TRUE) {
+    return((x- min(x)) /(max(x)-min(x)))
+}
+n_data_train <- (data_train %>% mutate(across(where(is.numeric), normalize)))
+n_data_test <- (data_test %>% mutate(across(where(is.numeric), normalize)))
+```
+
+```{r}
+decisiontree <- rpart(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = data_train, method = 'anova')
+pred = predict(decisiontree, data_test, method = "anova")
+
+#RMSE
+RMSE(pred = pred, obs = data_test$`Rented Bike Count`)
+#R^2
+cor(data_test$`Rented Bike Count`, pred) ^ 2
+```
+
+## RANDOM FOREST
+```{r, include=FALSE}
+library(randomForest)
+data_train2 <- data_train
+data_test2 <- data_test
+names(data_train2) <- make.names(names(data_train2))
+names(data_test2) <- make.names(names(data_test2))
+set.seed(222)
+```
+
+```{r}
+random_forest <- randomForest(`Rented.Bike.Count`~.-Date-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.`, data=data_train2, na.action=na.exclude)
+p2 <- predict(random_forest, data_test2)
+
+#RMSE
+RMSE(pred = p2, obs = data_test2$`Rented.Bike.Count`)
+#R^2
+cor(data_test2$`Rented.Bike.Count`, p2) ^ 2
+```
+
+## XGBOOST
+```{r, include=FALSE}
+library(xgboost)
+xgb_train = xgb.DMatrix(data = data.matrix(subset(data_train, select = -c(Seasons, `Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`))), label = data_train$`Rented Bike Count`)
+xgb_test = xgb.DMatrix(data = data.matrix(subset(data_test, select = -c(Seasons, `Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`))), label = data_test$`Rented Bike Count`)
+```
+
+```{r, echo=TRUE, results="hide"}
+xgbr = xgboost(data=xgb_train, max.depth = 2, nrounds=50)
+pred2 = predict(xgbr, xgb_test)
+
+#RMSE
+RMSE(pred2, data_test$`Rented Bike Count`)
+# R^2
+cor(data_test2$`Rented.Bike.Count`, pred2) ^ 2
+```
+
+## SUPPORT VECTOR REGRESSION
+```{r, include=FALSE}
+#Load Library
+library(e1071)
+set.seed(222)
+
+#Regression with SVM
+n1_data_train = subset(n_data_train, select = -c(Seasons))
+```
+
+```{r}
+modelsvm <- svm(`Rented Bike Count`~.-Date-`Dew point temperature(°C)`-`Solar Radiation (MJ/m2)`-`Snowfall (cm)`, data = n1_data_train, type="eps-regression")
+
+#Predict using SVM regression
+predictions = predict(modelsvm, subset(n_data_test, select = -c(Seasons, `Rented Bike Count`)))
+
+#RMSE
+RMSE(predictions * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`), data_test$`Rented Bike Count`)
+#R^2
+cor(data_test$`Rented Bike Count`, predictions* (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
+```
+## LightGBM
+```{r, include=FALSE}
+library(lightgbm)
+X=data.matrix(subset(data_train, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
+y=data.matrix(data_train[, names(data_train) == "Rented Bike Count"])
+X_test=data.matrix(subset(data_test, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
+y_test=data.matrix(data_test[, names(data_test) == "Rented Bike Count"])
+```
+
+```{r message=FALSE, warning=FALSE, results="hide", echo=TRUE}
+dtrain <- lgb.Dataset(X, label = y)
+dtest <- lgb.Dataset.create.valid(dtrain, X_test, label = y_test)
+model <- lightgbm(params = list(objective = "regression", metric = "l2"), data = dtrain)
+lgbmpred = predict(model, X_test)
+```
+```{r}
+#RMSE
+RMSE(pred = lgbmpred, obs = data_test$`Rented Bike Count`)
+#R^2
+cor(data_test$`Rented Bike Count`, lgbmpred) ^ 2
+```
+## KNN
+```{r, include=FALSE}
+library(caret)
+X2=data.matrix(subset(n_data_train, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
+y2=data.matrix(n_data_train[, names(n_data_train) == "Rented Bike Count"])
+X_test2=data.matrix(subset(n_data_test, select = -c(`Rented Bike Count`, Date, `Dew point temperature(°C)`, `Solar Radiation (MJ/m2)`, `Snowfall (cm)`)))
+y_test2=data.matrix(n_data_test[, names(n_data_test) == "Rented Bike Count"])
+```
+
+```{r}
+knnmodel = knnreg(X2, y2)
+pred_y = predict(knnmodel, X_test2)
+#RMSE
+RMSE(data_test$`Rented Bike Count`, pred_y * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`))
+#R^2
+cor(data_test$`Rented Bike Count`, pred_y * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
+```
+
+## NEURAL NETWORK
+```{r, include=FALSE}
+library(nnet)
+set.seed(222)
+data_train3 <- n_data_train[, -c(1)] # exclude date
+data_test3 <- n_data_test[, -c(1)] # exclude date
+names(data_train3) <- make.names(names(data_train3))
+names(data_test3) <- make.names(names(data_test3))
+data_train3 <- data.matrix(data_train3)
+data_test3 <- data.matrix(data_test3)
+```
+
+```{r, echo = TRUE, results="hide"}
+nn <- nnet(`Rented.Bike.Count`~.-`Dew.point.temperature..C.`-`Solar.Radiation..MJ.m2.`-`Snowfall..cm.`, data = data_train3, linout = FALSE, size=50, maxit = 1000, rang=0.05, decay=5e-4, trace = TRUE)
+
+nnpred = predict(nn, data_test3)
+```
+
+```{r}
+#RMSE
+RMSE(data_test$`Rented Bike Count`, nnpred * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`))
+#R^2
+cor(data_test$`Rented Bike Count`, nnpred * (max(data_test$`Rented Bike Count`) - min(data_test$`Rented Bike Count`)) + min(data_test$`Rented Bike Count`)) ^ 2
+```
+
