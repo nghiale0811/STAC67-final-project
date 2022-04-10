@@ -141,7 +141,7 @@ cont_vars_rbc %>% ggplot(aes(x = x, y = `Rented Bike Count`)) + geom_point(colou
   facet_wrap(~xname, scales = "free") + labs(title = "Scatterplots of Continous Variables against Response")
 ```
 
-From these plots, we can see that some variables have linear trends such as temperature, and dew point temperature. Other variables have non-linear trends, which may be better fitted with some polynomial or logramithic methods later on.
+From these plots, we can see that some variables have linear trends such as temperature, and dew point temperature. Other variables have non-linear trends, which may be better fitted with some polynomial or logarithmic methods later on.
 
 ```{r fig.width=10, out.height="30%", echo=FALSE}
 # Cat. vars vs rbc
